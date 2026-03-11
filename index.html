@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AD Tools</title>
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="icon_32.png">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0077b6">
+  <link rel="stylesheet" href="style-dark.css" />
+  <script src="birthday.js"></script>
+  <script src="holy.js"></script>
+  <script src="auth.js"></script>
+  <style>
+    .menu-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>AD Tools</h2>
+
+  <div id="fete-container" style="margin-bottom:10px;font-weight:bold;font-size:1.1em;color:#3498db;text-align:center;">
+    <span id="fete-nom">Chargement de la fête du jour...</span>
+  </div>
+  <div id="anniversaire-container" style="margin-bottom:20px;font-size:0.9em;color:#e67e22;text-align:center;">
+    <span id="anniversaire-texte"></span>
+  </div>
+
+  <div class="menu-grid">
+    <!-- Public -->
+    <button onclick="window.location.href='aroundme.html'">📍 Points d'intérêt</button>
+    <button onclick="window.location.href='gps.html'">🚗 Calcul d'iti.</button>
+    <button onclick="window.location.href='circuit.html'">🥾 Circuits</button>
+    <button onclick="window.location.href='event.html'">🎟️ Ticketmaster</button>
+    <button onclick="window.location.href='fuel.html'">⛽ Stations services</button>
+    <button onclick="window.location.href='publicHoliday.html'">🏖️ Jours fériés</button>
+    <button onclick="window.location.href='weather5.html'">☀️ Météo</button>
+    <button onclick="window.location.href='weather_histo.html'">☀️ H.Météo</button>
+    <button onclick="window.location.href='avis.html'">💡 Vos suggestions</button>
+
+    <!-- Amis -->
+    <button data-role="amis" onclick="window.location.href='birthday.html'">🎂 Anniversaires</button>
+    <button data-role="amis" onclick="window.location.href='holy.html'">😇 Fêtes à souhaiter</button>
+    <button data-role="amis" onclick="window.location.href='netatmo_rain.html'">☂️ H.Pluviométrie</button>
+    <button data-role="amis" onclick="window.location.href='netatmo_temp.html'">🌡️ H.Température</button>
+    <button data-role="amis" onclick="window.location.href='tide2.html'">🌊 Horaires marées</button>
+    <button data-role="amis" onclick="window.location.href='https://dubus.alwaysdata.net'">🍃 Arbre généalogiq.</button>
+
+    <!-- Foyer -->
+    <button data-role="foyer" onclick="window.location.href='petcare.html'">🐈 Pitch</button>
+    <button data-role="foyer" onclick="window.location.href='chauffage.html'">♨️ Chauffage</button>
+    <button data-role="foyer" onclick="window.location.href='somfy.html'">🪟 Somfy</button>
+    <button data-role="foyer" onclick="window.location.href='balance.html'">🪟 Withings</button>
+    <button data-role="foyer" onclick="window.location.href='stats.html'">🔢 Statistiques</button>
+  </div>
+
+  <footer style="text-align:center;padding:20px;font-size:0.9em;color:#888;">
+    © ADubus — Tous droits réservés
+  </footer>
+
+  <script>
+  function initialiserPage() {
+    const maintenant   = new Date();
+    const jour         = maintenant.getDate();
+    const mois         = maintenant.getMonth() + 1;
+    const anneeEnCours = maintenant.getFullYear();
+    const clef         = `${String(mois).padStart(2,'0')}-${String(jour).padStart(2,'0')}`;
+
+    if (typeof calendrierSaints !== 'undefined') {
+      const saint = calendrierSaints[clef] || 'Bonne fête !';
+      document.getElementById('fete-nom').textContent = 'Bonne fête ' + saint;
+    }
+
+    const annivTexte = document.getElementById('anniversaire-texte');
+    if (typeof anniversairesData === 'undefined') return;
+
+    if (anniversairesData[clef]) {
+      const nomsEtAges = anniversairesData[clef].map(p => `${p.nom} (${anneeEnCours - p.annee} ans)`).join(', ');
+      annivTexte.innerHTML = `<b>C'est l'anniversaire de ${nomsEtAges} !</b> 🎉`;
+      annivTexte.style.color = '#e74c3c';
+    } else {
+      for (let i = 1; i <= 366; i++) {
+        const d = new Date(maintenant);
+        d.setDate(maintenant.getDate() + i);
+        const k = `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        if (anniversairesData[k]) {
+          const noms = anniversairesData[k].map(p => `${p.nom} (${d.getFullYear()-p.annee} ans)`).join(', ');
+          annivTexte.textContent = `Prochain anniversaire : ${noms} (dans ${i} jour${i>1?'s':''})`;
+          break;
+        }
+      }
+    }
+  }
+
+  document.addEventListener('contextmenu', e => e.preventDefault());
+  document.addEventListener('keydown', e => {
+    if (e.key==='F12' || (e.ctrlKey && e.shiftKey && ['I','J'].includes(e.key)) || (e.ctrlKey && ['U','S'].includes(e.key)))
+      e.preventDefault();
+  });
+
+  window.onload = function() {
+    initialiserPage();
+    initIndex();
+  };
+  </script>
+
+</body>
+</html>
