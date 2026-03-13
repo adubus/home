@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fêtes des proches</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style-dark.css">
+  <script src="/birthday.js"></script>
+  <script src="/holy.js"></script>
+</head>
+<body>
+<script src="/auth.js"></script>
+<script>checkAccess('famille'); injectUserBar();</script>
+
+<div class="back" onclick="window.location.href='index.html'">← Accueil</div>
+<h1>Fêtes des proches</h1>
+<div class="subtitle">365 prochains jours</div>
+
+<div class="toolbar">
+  <button class="btn-export" onclick="exporterFetesICS()">📅 Exporter .ics</button>
+</div>
+
+<div id="content"><div class="msg-loading">Chargement…</div></div>
+
+<script>
+  function obtenirFetesTriees() {
+    const maintenant = new Date();
+    const prenomsUniques = new Set();
+
+    if (typeof anniversairesData !== 'undefined') {
+      Object.values(anniversairesData).forEach(groupe => {
+        groupe.forEach(p => {
+          const premierPrenom = p.nom.split(' ')[0];
+          prenomsUniques.add(premierPrenom);
+        });
+      });
+    }
+
+    let evenementsFetes = [];
+    for (let i = 0; i <= 365; i++) {
+      let dateT = new Date(maintenant);
+      dateT.setDate(maintenant.getDate() + i);
+      let clef = `${String(dateT.getMonth()+1).padStart(2,'0')}-${String(dateT.getDate()).padStart(2,'0')}`;
+
+      const saintDuJour = calendrierSaints[clef];
+      if (saintDuJour) {
+        prenomsUniques.forEach(prenom => {
+          let pattern = prenom;
+          switch (prenom.toLowerCase()) {
+            case "léo":      pattern = "Léo|Léon"; break;
+            case "stéphane": pattern = "Stéphane|Etienne"; break;
+          }
+          const regex = new RegExp("\\b(" + pattern + ")\\b", "i");
+          if (regex.test(saintDuJour)) {
+            evenementsFetes.push({
+              dateObjet: new Date(dateT),
+              prenom: prenom,
+              saintOfficiel: saintDuJour
+            });
+          }
+        });
+      }
+    }
+    return evenementsFetes;
+  }
+
+  function afficherFetes() {
+    const fetes = obtenirFetesTriees();
+    const today    = new Date(); today.setHours(0,0,0,0);
+    const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+
+    const estFeminin = (nom) => {
+      const fillesSansE = ["alix","ines","elisabeth"];
+      const garsAvecE   = ["alphonse","antoine","alexandre","baptiste","claude","dominique",
+                            "etienne","guillaume","jérôme","maxime","philippe","pierre","serge","stéphane","stéphanie"];
+      nom = nom.toLowerCase();
+      if (fillesSansE.includes(nom)) return true;
+      if (garsAvecE.includes(nom))   return false;
+      return nom.endsWith("e");
+    };
+
+    let html = `
+      <table>
+        <thead><tr>
+          <th>Date</th>
+          <th>Prénom</th>
+          <th>Saint du jour</th>
+        </tr></thead>
+        <tbody>`;
+
+    fetes.forEach(ev => {
+      const d = new Date(ev.dateObjet); d.setHours(0,0,0,0);
+      const isToday    = d.getTime() === today.getTime();
+      const isTomorrow = d.getTime() === tomorrow.getTime();
+      const isWE       = (ev.dateObjet.getDay()===0 || ev.dateObjet.getDay()===6);
+
+      const jSemaine = ev.dateObjet.toLocaleDateString("fr-FR",{weekday:"short"}).substring(0,3);
+      const jour     = ev.dateObjet.getDate();
+      const mois     = ev.dateObjet.toLocaleDateString("fr-FR",{month:"short"}).substring(0,3);
+      const dateStr  = `${jSemaine}. ${jour} ${mois}.`;
+
+      const nomS = ev.saintOfficiel.toLowerCase();
+      const aDejaTitre = nomS.includes("bienheureux")||nomS.includes("bienheureuse")||
+                         nomS.includes("les apôtres")||nomS.includes("saints")||nomS.includes("roi");
+
+      let texteAffichage, baseNomUrl;
+      if (aDejaTitre) {
+        texteAffichage = ev.saintOfficiel;
+        baseNomUrl     = ev.saintOfficiel;
+      } else {
+        const estF     = estFeminin(ev.prenom);
+        texteAffichage = (estF ? "Ste " : "St ") + ev.saintOfficiel;
+        baseNomUrl     = (estF ? "sainte-" : "saint-") + ev.saintOfficiel;
+      }
+
+      const nomUrlFinal = baseNomUrl
+        .toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+        .replace(/'/g,"").replace(/ & /g,"-").replace(/ /g,"-").replace(/-+/g,"-");
+
+      const urlSaint = nomS.includes("arthur")
+        ? "https://fr.wikipedia.org/wiki/Arthur_de_Glastonbury"
+        : `https://www.lejourduseigneur.com/saint/${nomUrlFinal}`;
+
+      const rowCls = isToday ? 'today' : isTomorrow ? 'tomorrow' : '';
+      const prefix = isToday ? '✨ ' : isTomorrow ? '→ ' : '';
+
+      html += `
+        <tr class="${rowCls}">
+          <td class="td-date ${isWE?'weekend':''}">${prefix}${dateStr}</td>
+          <td class="td-prenom">${ev.prenom}</td>
+          <td class="td-saint">
+            <span class="badge">
+              <a href="${urlSaint}" target="_blank">${texteAffichage}</a>
+            </span>
+          </td>
+        </tr>`;
+    });
+
+    html += `</tbody></table>`;
+    document.getElementById('content').innerHTML = html;
+  }
+
+  function exporterFetesICS() {
+    const fetes = obtenirFetesTriees();
+    if (!fetes.length) return;
+    let ics = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//ADubus//Fetes//FR\nCALSCALE:GREGORIAN\n";
+    fetes.forEach(f => {
+      const y  = f.dateObjet.getFullYear();
+      const m  = String(f.dateObjet.getMonth()+1).padStart(2,'0');
+      const dj = String(f.dateObjet.getDate()).padStart(2,'0');
+      const df = new Date(f.dateObjet); df.setDate(df.getDate()+1);
+      ics += `BEGIN:VEVENT\nSUMMARY:😇 Fête de ${f.prenom}\nDTSTART;VALUE=DATE:${y}${m}${dj}\nDTEND;VALUE=DATE:${df.getFullYear()}${String(df.getMonth()+1).padStart(2,'0')}${String(df.getDate()).padStart(2,'0')}\nEND:VEVENT\n`;
+    });
+    ics += "END:VCALENDAR";
+    const a = Object.assign(document.createElement('a'),{
+      href: URL.createObjectURL(new Blob([ics],{type:'text/calendar;charset=utf-8'})),
+      download: 'fetes_a_souhaiter.ics'
+    });
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+
+  window.onload = afficherFetes;
+</script>
+</body>
+</html>
