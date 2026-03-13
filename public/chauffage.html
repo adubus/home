@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chauffage</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style-dark.css">
+</head>
+<body>
+<script src="/auth.js"></script>
+<script>checkAccess('foyer'); injectUserBar();</script>
+
+<div class="back" onclick="window.location.href='index.html'">← Accueil</div>
+<h1>Chauffage</h1>
+<div class="subtitle">Intuis · Étage &nbsp;·&nbsp; Meross · RDC</div>
+
+<div class="refresh-bar">
+  <button class="btn-refresh" onclick="loadAll()">↺ Actualiser</button>
+</div>
+
+<div id="content"><div class="msg-loading">Chargement…</div></div>
+
+<script>
+const BASE = 'https://dubus.alwaysdata.net';
+
+const CYCLE_INTUIS = ['home','hg','off'];
+// Meross : OFF est intégré dans le cycle comme état spécial
+const CYCLE_MEROSS = ['AUTO','HEAT','COOL','ECONOMY','OFF'];
+
+const MODE_LABEL_I = { home:'Auto', hg:'HG', off:'Off', manual:'Manuel' };
+const MODE_CLS_I   = { home:'mode-home', hg:'mode-cool', off:'mode-off', manual:'mode-manual' };
+
+const MODE_LABEL_M = { AUTO:'Auto', HEAT:'Confort', COOL:'HG', ECONOMY:'Nuit', OFF:'Off' };
+const MODE_CLS_M   = { AUTO:'mode-home', HEAT:'mode-heat', COOL:'mode-cool', ECONOMY:'mode-night', OFF:'mode-moff' };
+
+// ── Couleur température ───────────────────────────────
+function tempColor(t) {
+  // 10°=bleu → 16°=vert → 20°=orange → 25°+=rouge
+  const stops = [
+    { v:10, r:56,  g:139, b:253 },  // bleu
+    { v:16, r:63,  g:185, b:80  },  // vert
+    { v:20, r:210, g:153, b:34  },  // orange
+    { v:25, r:248, g:81,  b:73  },  // rouge
+  ];
+  if (t <= stops[0].v) return `rgb(${stops[0].r},${stops[0].g},${stops[0].b})`;
+  if (t >= stops[stops.length-1].v) { const s=stops[stops.length-1]; return `rgb(${s.r},${s.g},${s.b})`; }
+  for (let i=0; i<stops.length-1; i++) {
+    if (t >= stops[i].v && t <= stops[i+1].v) {
+      const ratio = (t - stops[i].v) / (stops[i+1].v - stops[i].v);
+      const r = Math.round(stops[i].r + ratio*(stops[i+1].r - stops[i].r));
+      const g = Math.round(stops[i].g + ratio*(stops[i+1].g - stops[i].g));
+      const b = Math.round(stops[i].b + ratio*(stops[i+1].b - stops[i].b));
+      return `rgb(${r},${g},${b})`;
+    }
+  }
+}
+
+// ── Chargement ────────────────────────────────────────
+async function loadAll() {
+  document.getElementById('content').innerHTML = '<div class="msg-loading">Chargement…</div>';
+  try {
+    const [intuis, meross, legrand] = await Promise.all([
+      fetch(BASE + '/api_intuis.php').then(r => r.json()),
+      fetch(BASE + '/api_meross.php').then(r => r.json()),
+      fetch(BASE + '/api_legrand.php?action=status', {headers: {'Authorization': 'Bearer ' + (localStorage.getItem('jwt')||'')}}).then(r => r.json()).catch(() => null),
+    ]);
+    render(intuis, meross, legrand);
+  } catch(e) {
+    document.getElementById('content').innerHTML = `<div class="msg-error">Erreur : ${e.message}</div>`;
+  }
+}
+
+// ── Rendu ─────────────────────────────────────────────
+function render(intuis, meross, legrand) {
+  const now = new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  let html = `
+    <table>
+      <thead><tr>
+        <th class="left">Pièce</th>
+        <th>Temp.</th>
+        <th>Consigne</th>
+        <th>Mode</th>
+      </tr></thead>
+      <tbody>`;
+
+  // ── Section Intuis ──
+  html += `<tr class="section-row"><td colspan="4">🏠 Étage · Intuis</td></tr>`;
+  for (const t of intuis) {
+    const isOff     = t.mode === 'off';
+    const isHG      = t.mode === 'hg';
+    const isHeating = !isOff && !isHG && t.temperature_actuelle < t.consigne;
+    const rowCls    = isOff ? 'row-off' : isHeating ? 'row-heating' : '';
+    const curMode   = t.mode || 'home';
+    const dispMode  = curMode === 'manual' ? 'home' : curMode;
+    const modeCls   = MODE_CLS_I[dispMode] || 'mode-home';
+    const modeLbl   = MODE_LABEL_I[dispMode] || 'Auto';
+    const color     = tempColor(t.temperature_actuelle);
+
+    html += `
+      <tr class="${rowCls}">
+        <td class="td-name">${t.name}</td>
+        <td class="td-cur" style="color:${color}">
+          ${t.temperature_actuelle.toFixed(1)}° <span class="flame" style="visibility:${isHeating?'visible':'hidden'}">🔥</span>
+        </td>
+        <td class="td-set">
+          <div class="ctrl-wrap">
+            <button class="ctrl-btn" onclick="changeIntuisConsigne('${t.id}','${curMode}',-0.5)">−</button>
+            <span class="ctrl-val" id="ictrl-${t.id}" data-val="${t.consigne}">${t.consigne}°</span>
+            <button class="ctrl-btn" onclick="changeIntuisConsigne('${t.id}','${curMode}',+0.5)">+</button>
+          </div>
+        </td>
+        <td class="td-mode">
+          <button class="mode-btn ${modeCls}" id="imode-${t.id}" data-mode="${dispMode}" onclick="cycleIntuis('${t.id}')">${modeLbl}</button>
+        </td>
+      </tr>`;
+  }
+
+  // ── Section Meross ──
+  html += `<tr class="section-row"><td colspan="4">🏡 RDC · Meross</td></tr>`;
+  for (const t of meross) {
+    const isOff     = !t.allume;
+    const isHeating = t.chauffe || (!isOff && t.temperature_actuelle < t.consigne);
+    const rowCls    = isOff ? 'row-off' : isHeating ? 'row-heating' : '';
+    // Si éteint, le bouton mode affiche "Off", sinon le vrai mode
+    const curMode   = isOff ? 'OFF' : (t.mode || 'AUTO');
+    const modeCls   = MODE_CLS_M[curMode] || 'mode-auto';
+    const modeLbl   = MODE_LABEL_M[curMode] || 'Auto';
+    const color     = tempColor(t.temperature_actuelle);
+
+    html += `
+      <tr class="${rowCls}">
+        <td class="td-name">${t.name.replace('Meross ','')}</td>
+        <td class="td-cur" style="color:${color}">
+          ${t.temperature_actuelle.toFixed(1)}° <span class="flame" style="visibility:${isHeating?'visible':'hidden'}">🔥</span>
+        </td>
+        <td class="td-set">
+          ${isOff ? '<span class="ctrl-val" style="color:var(--text-dim)">—</span>' : `<div class="ctrl-wrap">
+            <button class="ctrl-btn" onclick="changeConsigne('${t.uuid}','${t.mode||'AUTO'}',-0.5)">−</button>
+            <span class="ctrl-val" id="mctrl-${t.uuid}" data-val="${t.consigne}">${t.consigne.toFixed(1)}°</span>
+            <button class="ctrl-btn" onclick="changeConsigne('${t.uuid}','${t.mode||'AUTO'}',+0.5)">+</button>
+          </div>`}
+        </td>
+        <td class="td-mode">
+          <button class="mode-btn ${modeCls}" id="mmode-${t.uuid}"
+            data-mode="${curMode}" data-allume="${t.allume?'1':'0'}"
+            onclick="cycleMeross('${t.uuid}','${t.mode||'AUTO'}',${t.allume})">${modeLbl}</button>
+        </td>
+      </tr>`;
+  }
+
+  // ── Section Chauffe-eau ──
+  if (legrand && !legrand.error) {
+    const mode     = legrand.mode || 'auto';
+    const power    = legrand.power || 0;
+    const reach    = legrand.reachable;
+    const modeCls  = mode === 'off' ? 'mode-ce-off' : mode === 'temporary_on' ? 'mode-ce-forced' : 'mode-ce-auto';
+    const modeLbl  = mode === 'off' ? 'Off' : mode === 'temporary_on' ? '🔥 Forcé' : 'Auto';
+    const powerTxt = !reach
+      ? `<span style="color:var(--red)">Hors ligne</span>`
+      : power > 0
+        ? `<span class="power-val" style="color:#d29922">${power}W 🔥</span>`
+        : `<span style="color:var(--text-dim)">—</span>`;
+
+    html += `
+        <tr class="section-row"><td colspan="4">🚿 Chauffe-eau · Legrand</td></tr>
+        <tr>
+          <td class="td-name">Chauffe Eau</td>
+          <td class="td-cur">${powerTxt}</td>
+          <td></td>
+          <td class="td-mode">
+            <button class="mode-btn ${modeCls}" id="ce-mode-btn" data-mode="${mode}" onclick="cycleCE()">
+              ${modeLbl}
+            </button>
+          </td>
+        </tr>`;
+  }
+
+  html += `</tbody></table>`;
+
+  html += `<div class="last-update">Mis à jour à ${now}</div>`;
+  document.getElementById('content').innerHTML = html;
+}
+
+// ── Cycle Intuis ──────────────────────────────────────
+async function cycleIntuis(id) {
+  const btn     = document.getElementById('imode-' + id);
+  const cur     = btn.dataset.mode;
+  const next    = CYCLE_INTUIS[(CYCLE_INTUIS.indexOf(cur) + 1) % CYCLE_INTUIS.length];
+  btn.dataset.mode = next;
+  btn.className    = 'mode-btn ' + MODE_CLS_I[next];
+  btn.textContent  = MODE_LABEL_I[next];
+  const consigne   = parseFloat(document.getElementById('ictrl-' + id).dataset.val);
+  await postIntuis({ id, mode: next, consigne });
+}
+
+// ── Cycle Meross (mode + on/off fusionnés) ────────────
+async function cycleMeross(uuid, lastRealMode, currentlyOn) {
+  const btn  = document.getElementById('mmode-' + uuid);
+  const cur  = btn.dataset.mode;
+  const next = CYCLE_MEROSS[(CYCLE_MEROSS.indexOf(cur) + 1) % CYCLE_MEROSS.length];
+  btn.dataset.mode = next;
+  btn.className    = 'mode-btn ' + MODE_CLS_M[next];
+  btn.textContent  = MODE_LABEL_M[next];
+  // Met à jour onclick pour mémoriser le bon mode réel
+  btn.setAttribute('onclick', `cycleMeross('${uuid}','${next === 'OFF' ? lastRealMode : next}',${next !== 'OFF'})`);
+
+  if (next === 'OFF') {
+    await postMeross({ uuid, on_not_off: false });
+  } else {
+    if (!currentlyOn) await postMeross({ uuid, on_not_off: true });
+    await postMeross({ uuid, mode: next });
+  }
+}
+
+// ── Consigne Intuis ───────────────────────────────────
+async function changeIntuisConsigne(id, mode, delta) {
+  const ctrl   = document.getElementById('ictrl-' + id);
+  const newVal = Math.round((parseFloat(ctrl.dataset.val) + delta) * 2) / 2;
+  ctrl.dataset.val = newVal;
+  ctrl.textContent = newVal.toFixed(1) + '°';
+  await postIntuis({ id, mode: 'manual', consigne: newVal });
+}
+
+// ── Consigne Meross ───────────────────────────────────
+async function changeConsigne(uuid, mode, delta) {
+  const ctrl   = document.getElementById('mctrl-' + uuid);
+  const newVal = Math.round((parseFloat(ctrl.dataset.val) + delta) * 2) / 2;
+  ctrl.dataset.val = newVal;
+  ctrl.textContent = newVal.toFixed(1) + '°';
+  await postMeross({ uuid, mode, consigne: newVal });
+}
+
+// ── API ───────────────────────────────────────────────
+async function postIntuis(p) {
+  try { await fetch(BASE+'/api_intuis.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}); }
+  catch(e) { console.error('Intuis:',e); }
+}
+async function postMeross(p) {
+  try { await fetch(BASE+'/api_meross.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}); }
+  catch(e) { console.error('Meross:',e); }
+}
+
+// ── Cycle Chauffe-eau ─────────────────────────────────
+const CYCLE_CE = ['off', 'auto', 'temporary_on'];
+const CE_CLS   = { off:'mode-ce-off', auto:'mode-ce-auto', temporary_on:'mode-ce-forced' };
+const CE_LBL   = { off:'Off', auto:'Auto', temporary_on:'🔥 Forcé' };
+
+async function cycleCE() {
+  const btn = document.getElementById('ce-mode-btn');
+  if (!btn) return;
+  const cur  = btn.dataset.mode;
+  const next = CYCLE_CE[(CYCLE_CE.indexOf(cur) + 1) % CYCLE_CE.length];
+  btn.dataset.mode = next;
+  btn.className    = 'mode-btn ' + CE_CLS[next];
+  btn.textContent  = CE_LBL[next];
+  try {
+    const jwt = localStorage.getItem('jwt') || '';
+    await fetch(BASE + '/api_legrand.php?action=set&mode=' + next, {
+      headers: { 'Authorization': 'Bearer ' + jwt }
+    });
+  } catch(e) { console.error('Legrand:', e); }
+}
+
+loadAll();
+setInterval(loadAll, 120000);
+</script>
+</body>
+</html>
